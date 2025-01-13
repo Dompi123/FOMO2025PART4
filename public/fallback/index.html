@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>FOMO - Offline</title>
+    <style>
+        :root {
+            --background-rgb: 7, 7, 7;
+            --foreground-rgb: 255, 255, 255;
+            --gradient-primary: linear-gradient(to right, #9D5CFF, #FF3B7F);
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+        }
+        
+        body {
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            background: rgb(var(--background-rgb));
+            color: rgb(var(--foreground-rgb));
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding-top: max(20px, var(--safe-top));
+            padding-bottom: max(20px, var(--safe-bottom));
+        }
+        
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1.5rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .message {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            max-width: 80%;
+            opacity: 0.8;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 9999px;
+            font-size: 0.875rem;
+        }
+
+        .status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #FF3B7F;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+        
+        .retry-button {
+            background: var(--gradient-primary);
+            border: none;
+            color: white;
+            padding: 16px 32px;
+            border-radius: 16px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .retry-button:hover {
+            transform: scale(1.02);
+        }
+
+        .retry-button:active {
+            transform: scale(0.98);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        @media (display-mode: standalone) {
+            body {
+                padding-top: max(20px, var(--safe-top));
+                padding-bottom: max(20px, var(--safe-bottom));
+            }
+        }
+
+        .background {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            overflow: hidden;
+        }
+
+        .background::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(157,92,255,0.08), transparent 70%);
+        }
+    </style>
+</head>
+<body>
+    <div class="background"></div>
+    <div class="logo">FOMO</div>
+    <div class="status">You're offline</div>
+    <div class="message">Please check your internet connection and try again.</div>
+    <button class="retry-button" onclick="window.location.reload()">
+        Try Again
+    </button>
+    <script>
+        // Listen for online status changes
+        window.addEventListener('online', () => {
+            window.location.reload();
+        });
+
+        // Add iOS viewport height fix
+        function setViewportHeight() {
+            document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`);
+        }
+        window.addEventListener('resize', setViewportHeight);
+        window.addEventListener('orientationchange', setViewportHeight);
+        setViewportHeight();
+    </script>
+</body>
+</html> 

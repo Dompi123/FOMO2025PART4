@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dynamic viewport units */
+  --vh: 1vh;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+  --safe-right: env(safe-area-inset-right);
+
+  /* Design tokens */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+  
+  /* Colors */
+  --gradient-primary: linear-gradient(to right, #9D5CFF, #FF3B7F);
+  --gradient-surface: linear-gradient(to bottom right, rgba(157,92,255,0.2), rgba(255,59,127,0.2));
+  
+  /* Spacing */
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.25rem;  /* 20px */
+  --space-6: 1.5rem;   /* 24px */
+}
+
+/* Base styles */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-[#070707] text-white;
+  font-family: var(--font-sans);
+  height: 100vh;
+  height: calc(var(--vh) * 100);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Typography */
+.text-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  font-feature-settings: "ss01" on, "ss02" on;
+}
+
+.text-numeric {
+  font-feature-settings: "tnum" on, "lnum" on;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Mobile viewport adjustments */
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-top {
+    padding-top: max(var(--safe-top), var(--space-4));
+  }
+  .safe-bottom {
+    padding-bottom: max(var(--safe-bottom), var(--space-6));
+  }
+  .safe-left {
+    padding-left: max(var(--safe-left), var(--space-4));
+  }
+  .safe-right {
+    padding-right: max(var(--safe-right), var(--space-4));
+  }
+}
+
+/* Container max-widths */
+.container-narrow {
+  @apply mx-auto px-4;
+  width: min(100%, 28rem);
+  max-width: 448px;
+}
+
+/* Button variants */
+.btn-base {
+  @apply h-11 px-4 rounded-xl text-sm font-medium;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-lg {
+  @apply h-14 px-6 rounded-2xl text-base font-medium;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-gradient {
+  background: var(--gradient-primary);
+}
+
+/* Card variants */
+.card-base {
+  @apply p-4 rounded-2xl;
+  backdrop-filter: blur(20px);
+}
+
+.card-gradient {
+  background: var(--gradient-surface);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Input styles */
+.input-base {
+  @apply h-11 px-4 rounded-xl text-sm;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.input-base:focus {
+  @apply ring-2 ring-[#9D5CFF];
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Bottom nav */
+.nav-height {
+  height: calc(4rem + var(--safe-bottom));
+}
+
+/* Animations */
+.animate-fade {
+  animation: fade 0.2s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* iOS-specific styles */
+@supports (-webkit-touch-callout: none) {
+  .ios-momentum-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .ios-click-fix {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Map Styles */
+.venue-marker {
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.venue-marker:hover {
+  transform: scale(1.1);
+}
+
+.venue-marker-selected {
+  transform: scale(1.2);
+  z-index: 1;
+}
