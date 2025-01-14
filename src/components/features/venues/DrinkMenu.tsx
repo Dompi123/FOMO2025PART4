@@ -1,34 +1,52 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ChevronDown, ChevronLeft, Search, Plus, 
   Minus, Star, Users, Timer, Share2, Trophy
 } from 'lucide-react';
-import type { Screen } from '@/types';
+import type { Screen, Drink, Venue } from '@/types';
+import { useDebounce } from '../../../hooks/useDebounce';
+import { motion } from 'framer-motion';
 
-interface Drink {
-  id: string;
-  name: string;
-  price: number;
-  image: string;
-  popularity: number;
-  timeLimit?: string;
-  boost?: string;
-}
+const MAX_QUANTITY = 10;
+const MIN_QUANTITY = 1;
 
-interface DrinkMenuProps {
-  venue: any;
-  onNavigate: (screen: Screen, data?: any) => void;
+export interface DrinkMenuProps {
+  venue: Venue;
+  onNavigate: (screen: Screen, data?: { items: Drink[] }) => void;
   onBack: () => void;
+  disabled?: boolean;
 }
 
-export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack }) => {
+interface Category {
+  id: string
+  label: string
+  count: string
+}
+
+export function DrinkMenu({ venue, onNavigate, onBack, disabled }: DrinkMenuProps) {
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedDrink, setSelectedDrink] = useState<Drink | null>(null);
   const [showCustomize, setShowCustomize] = useState(false);
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(MIN_QUANTITY);
   const [selectedDrinks, setSelectedDrinks] = useState<Drink[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const categories = [
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      setSelectedDrink(null);
+      setShowCustomize(false);
+      setQuantity(MIN_QUANTITY);
+      setError(null);
+    };
+  }, []);
+
+  // Debounce search query
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  const categories: Category[] = [
     { id: 'all', label: 'ALL', count: '12' },
     { id: 'hot', label: 'HOT', count: '6' },
     { id: 'mixed', label: 'MIXED', count: '2X' }
@@ -39,45 +57,85 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
       id: '1',
       name: 'Single Mixed Drink',
       price: 4.00,
-      image: '/api/placeholder/80/80',
-      popularity: 342,
-      timeLimit: '1h left',
-      boost: '2X FOMO'
+      description: 'Classic mixed drink',
+      popularity: 'High',
+      points: 10,
+      image: '/api/placeholder/80/80'
     },
     {
       id: '2',
       name: 'Truly Hard Seltzer',
       price: 4.00,
-      image: '/api/placeholder/80/80',
-      popularity: 189,
-      boost: 'Trending'
+      description: 'Light and refreshing',
+      popularity: 'Medium',
+      points: 8,
+      image: '/api/placeholder/80/80'
     },
     {
       id: '3',
       name: 'Green Tea Shot',
       price: 4.00,
-      image: '/api/placeholder/80/80',
-      popularity: 156
+      description: 'Sweet and smooth',
+      popularity: 'Low',
+      points: 6,
+      image: '/api/placeholder/80/80'
     }
   ];
 
-  const handleAddToOrder = () => {
-    if (selectedDrink) {
-      // Add the drink with its quantity
-      for (let i = 0; i < quantity; i++) {
-        setSelectedDrinks(prev => [...prev, selectedDrink]);
-      }
-      setShowCustomize(false);
-      setQuantity(1);
+  // Memoize filtered drinks
+  const filteredDrinks = useMemo(() => 
+    drinks.filter(drink => 
+      drink.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      drink.description.toLowerCase().includes(debouncedSearch.toLowerCase())
+    ),
+    [drinks, debouncedSearch]
+  );
+
+  const handleAddToOrder = useCallback(async () => {
+    if (!selectedDrink) return;
+    
+    if (quantity > MAX_QUANTITY) {
+      setError(`Maximum quantity is ${MAX_QUANTITY}`);
+      return;
     }
-  };
 
-  const total = selectedDrinks.reduce((sum, drink) => sum + drink.price, 0);
+    setIsLoading(true);
+    setError(null);
 
-  const handleCheckout = () => {
-    console.log('Navigating to checkout with drinks:', selectedDrinks);
-    onNavigate('checkout', { items: selectedDrinks });
-  };
+    try {
+      // Add the drink with its quantity
+      const newDrinks = Array(quantity).fill(selectedDrink);
+      setSelectedDrinks(prev => [...prev, ...newDrinks]);
+      setShowCustomize(false);
+      setQuantity(MIN_QUANTITY);
+    } catch (err) {
+      setError('Failed to add drink to order');
+      console.error('Add to order error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedDrink, quantity]);
+
+  const total = useMemo(() => 
+    selectedDrinks.reduce((sum, drink) => sum + drink.price, 0),
+    [selectedDrinks]
+  );
+
+  const handleCheckout = useCallback(async () => {
+    if (disabled) return;
+    
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      await onNavigate('checkout', { items: selectedDrinks });
+    } catch (err) {
+      setError('Failed to proceed to checkout');
+      console.error('Checkout error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedDrinks, onNavigate, disabled]);
 
   return (
     <div className="min-h-screen bg-[#070707] text-white">
@@ -93,7 +151,9 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
             <div className="flex items-center gap-4">
               <button
                 onClick={onBack}
-                className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90"
+                disabled={isLoading || disabled}
+                className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90 disabled:opacity-50"
+                aria-label="Go back"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -107,13 +167,15 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
                 <button
                   key={category.id}
                   onClick={() => setActiveCategory(category.id)}
+                  disabled={isLoading || disabled}
                   className={`
-                    relative px-4 py-1.5 rounded-full text-sm font-medium transition-all hover:scale-105 active:scale-95
+                    relative px-4 py-1.5 rounded-full text-sm font-medium transition-all hover:scale-105 active:scale-95 disabled:opacity-50
                     ${activeCategory === category.id 
                       ? 'bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F]' 
                       : 'bg-white/5 hover:bg-white/10'
                     }
                   `}
+                  aria-pressed={activeCategory === category.id}
                 >
                   {category.label}
                   <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF3B7F] text-[10px] font-bold flex items-center justify-center animate-pulse">
@@ -129,85 +191,102 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
               <Search className="w-5 h-5 text-white/40" />
               <input 
                 type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="What do you want to drink?"
                 className="bg-transparent w-full text-white placeholder:text-white/40 focus:outline-none"
+                aria-label="Search drinks"
+                disabled={isLoading || disabled}
               />
             </div>
           </div>
+
+          {error && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-4 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 flex items-center gap-2"
+            >
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <p>{error}</p>
+            </motion.div>
+          )}
         </div>
       </header>
 
-      {/* Drink Menu */}
-      <main className="pt-36 pb-24 max-w-md mx-auto px-4 space-y-3">
-        {drinks.map((drink) => (
-          <div
-            key={drink.id}
-            className="p-4 rounded-2xl bg-gradient-to-br from-[#9D5CFF]/10 to-[#FF3B7F]/10 border border-white/5 backdrop-blur-sm opacity-0 translate-y-4 animate-fade-in-up"
-          >
-            <div className="flex gap-4">
-              <img 
-                src={drink.image}
-                alt={drink.name}
-                className="w-20 h-20 rounded-xl object-cover"
-              />
-              <div className="flex-1 space-y-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-bold">{drink.name}</h3>
-                    <div className="mt-1 text-2xl font-bold bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] text-transparent bg-clip-text">
-                      ${drink.price.toFixed(2)}
+      {/* Loading State */}
+      {isLoading && (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-4"
+        >
+          <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+          <p className="text-white/60 animate-pulse">Processing your request...</p>
+        </motion.div>
+      )}
+
+      {/* Main Content */}
+      <main className="pt-[160px] pb-[100px] px-4 max-w-md mx-auto">
+        {/* Drink List */}
+        <div className="space-y-4" role="list">
+          {filteredDrinks.length === 0 ? (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-8 text-white/60"
+            >
+              No drinks found matching "{debouncedSearch}"
+            </motion.div>
+          ) : (
+            filteredDrinks.map((drink) => (
+              <motion.div 
+                key={drink.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                onClick={() => {
+                  if (!isLoading && !disabled) {
+                    setSelectedDrink(drink);
+                    setShowCustomize(true);
+                  }
+                }}
+                className="p-4 rounded-2xl bg-white/5 backdrop-blur-sm cursor-pointer transition-transform hover:scale-102 active:scale-98"
+                role="listitem"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-[#9D5CFF]/20 to-[#FF3B7F]/20" />
+                  <div className="flex-1">
+                    <h3 className="font-medium">{drink.name}</h3>
+                    <p className="text-sm text-white/60">{drink.description}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="text-sm font-medium">${drink.price.toFixed(2)}</div>
+                      <div className="text-xs text-white/40">•</div>
+                      <div className="text-sm text-white/60">{drink.popularity}</div>
+                      <div className="text-xs text-white/40">•</div>
+                      <div className="text-sm text-[#9D5CFF]">+{drink.points} pts</div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedDrink(drink);
-                      setShowCustomize(true);
-                    }}
-                    className="p-3 rounded-full bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] transition-transform hover:scale-110 active:scale-90"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
                 </div>
-
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="flex items-center gap-1 text-white/60">
-                    <Users className="w-4 h-4" />
-                    <span>{drink.popularity} ordered</span>
-                  </div>
-                  {drink.timeLimit && (
-                    <div className="flex items-center gap-1 text-white/60">
-                      <Timer className="w-4 h-4" />
-                      <span>{drink.timeLimit}</span>
-                    </div>
-                  )}
-                </div>
-
-                {drink.boost && (
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-[#FF3B7F] animate-ping" />
-                    <span className="text-[#FF3B7F] text-sm">{drink.boost}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
+              </motion.div>
+            ))
+          )}
+        </div>
       </main>
 
       {/* Checkout Button */}
-      {selectedDrinks.length > 0 && !showCustomize && (
-        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
-          <button
+      {selectedDrinks.length > 0 && (
+        <div className="fixed bottom-24 left-0 right-0 p-4 bg-[#070707]/80 backdrop-blur-xl border-t border-white/5">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={handleCheckout}
-            className="flex items-center gap-2 px-8 py-4 rounded-full bg-black text-white font-medium shadow-lg transition-transform hover:scale-102 active:scale-98"
+            disabled={isLoading || disabled}
+            className="w-full bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] p-4 rounded-2xl font-bold text-lg shadow-lg shadow-purple-500/20 disabled:opacity-50"
           >
-            <div className="flex items-center">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4 4H5.62L6.72 16.43C6.78 17.02 6.98 17.58 7.33 18.05C7.68 18.52 8.16 18.9 8.72 19.14C9.28 19.38 9.89 19.47 10.49 19.4C11.1 19.33 11.67 19.1 12.14 18.73H17C17.47 19.1 18.04 19.33 18.65 19.4C19.25 19.47 19.86 19.38 20.42 19.14C20.98 18.9 21.46 18.52 21.81 18.05C22.16 17.58 22.36 17.02 22.42 16.43L23.52 4H4ZM12 13.5C12.53 13.5 13.04 13.3 13.47 12.93C13.89 12.57 14.21 12.06 14.37 11.48C14.53 10.91 14.52 10.3 14.33 9.73C14.14 9.16 13.79 8.67 13.32 8.32C12.85 7.97 12.29 7.77 11.71 7.77C11.13 7.77 10.57 7.97 10.1 8.32C9.63 8.67 9.28 9.16 9.09 9.73C8.9 10.3 8.89 10.91 9.05 11.48C9.21 12.06 9.53 12.57 9.95 12.93C10.38 13.3 10.89 13.5 11.42 13.5H12Z" fill="white"/>
-              </svg>
-              <span className="ml-2">View cart • {selectedDrinks.length}</span>
-            </div>
-          </button>
+            {isLoading ? 'Processing...' : `Checkout • $${total.toFixed(2)}`}
+          </motion.button>
         </div>
       )}
 
@@ -221,7 +300,9 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
                   <h2 className="text-xl font-bold">{selectedDrink.name}</h2>
                   <button
                     onClick={() => setShowCustomize(false)}
-                    className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90"
+                    disabled={isLoading || disabled}
+                    className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90 disabled:opacity-50"
+                    aria-label="Close customization panel"
                   >
                     <ChevronDown className="w-5 h-5" />
                   </button>
@@ -233,15 +314,19 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
                   </div>
                   <div className="flex items-center gap-4">
                     <button
-                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                      className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90"
+                      onClick={() => setQuantity(Math.max(MIN_QUANTITY, quantity - 1))}
+                      disabled={quantity <= MIN_QUANTITY || isLoading || disabled}
+                      className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90 disabled:opacity-50"
+                      aria-label="Decrease quantity"
                     >
                       <Minus className="w-5 h-5" />
                     </button>
                     <span className="font-bold text-lg">{quantity}</span>
                     <button
-                      onClick={() => setQuantity(quantity + 1)}
-                      className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90"
+                      onClick={() => setQuantity(Math.min(MAX_QUANTITY, quantity + 1))}
+                      disabled={quantity >= MAX_QUANTITY || isLoading || disabled}
+                      className="p-2 rounded-full bg-white/5 transition-transform hover:scale-110 active:scale-90 disabled:opacity-50"
+                      aria-label="Increase quantity"
                     >
                       <Plus className="w-5 h-5" />
                     </button>
@@ -250,7 +335,8 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
 
                 <button
                   onClick={handleAddToOrder}
-                  className="w-full py-4 rounded-2xl font-bold text-lg bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] transition-transform hover:scale-102 active:scale-98"
+                  disabled={isLoading || disabled}
+                  className="w-full py-4 rounded-2xl font-bold text-lg bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] transition-transform hover:scale-102 active:scale-98 disabled:opacity-50"
                 >
                   Add to order • ${(selectedDrink.price * quantity).toFixed(2)}
                 </button>
@@ -261,4 +347,4 @@ export const DrinkMenu: React.FC<DrinkMenuProps> = ({ venue, onNavigate, onBack 
       )}
     </div>
   );
-};
+}

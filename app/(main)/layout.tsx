@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { BottomNav } from '@/components/BottomNav'
 import type { Screen } from '@/types'
 
@@ -35,29 +35,61 @@ export default function MainLayout({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [currentScreen, setCurrentScreen] = useState<Screen>(() => 
     getInitialScreen(pathname)
   )
 
-  // Keep navigation state in sync with URL
-  useEffect(() => {
+  // Sync screen state with URL and handle browser navigation
+  const syncScreenState = useCallback(() => {
     const screen = getInitialScreen(pathname)
-    if (screen) {
+    const currentState = window.history.state
+
+    // Update screen state if it differs from current
+    if (screen && screen !== currentScreen) {
       setCurrentScreen(screen)
+      
+      // Update history state to include screen info
+      if (!currentState?.screen || currentState.screen !== screen) {
+        window.history.replaceState(
+          { ...currentState, screen },
+          '',
+          window.location.href
+        )
+      }
     }
-  }, [pathname])
+  }, [pathname, currentScreen])
+
+  useEffect(() => {
+    syncScreenState()
+
+    // Handle browser back/forward
+    const handlePopState = () => {
+      syncScreenState()
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [syncScreenState, pathname, searchParams])
 
   const handleScreenChange = (screen: Screen) => {
     setCurrentScreen(screen)
     const path = screenToPath[screen]
     if (path) {
+      // Store screen in history state before navigation
+      const currentState = window.history.state
+      window.history.replaceState(
+        { ...currentState, screen },
+        '',
+        window.location.href
+      )
       router.push(path)
     }
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#070707] text-white flex flex-col">
-      <main className="flex-1 pb-[72px]">
+    <div className="flex flex-col min-h-[100dvh] bg-[#070707]">
+      <main className="flex-1">
         {children}
       </main>
       <BottomNav

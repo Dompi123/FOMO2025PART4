@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { VenueList } from '@/components/features/venues/VenueList'
+import { VenueList } from '../../../src/components/features/venues/VenueList'
 import dynamic from 'next/dynamic'
-import type { Venue } from '@/types'
+import type { Venue } from '../../../src/types'
 import { List, Map as MapIcon, Search } from 'lucide-react'
 
 const VenueMap = dynamic(
-  () => import('@/components/features/venues/VenueMap'),
+  () => import('../../../src/components/features/venues/VenueMap'),
   { 
     loading: () => <MapSkeleton />,
     ssr: false
@@ -20,6 +20,9 @@ function MapSkeleton() {
     <div className="w-full h-full bg-gray-900 animate-pulse rounded-lg" />
   )
 }
+
+// Fixed timestamps to avoid re-renders
+const NOW = new Date().toISOString()
 
 const mockVenues: Venue[] = [
   {
@@ -38,7 +41,7 @@ const mockVenues: Venue[] = [
     boost: 435,
     vibes: 892,
     imageUrl: '/images/venues/neon-lounge.jpg',
-    updatedAt: new Date().toISOString()
+    updatedAt: NOW
   },
   {
     id: '2', 
@@ -56,7 +59,7 @@ const mockVenues: Venue[] = [
     boost: 312,
     vibes: 756,
     imageUrl: '/images/venues/ricks-bar.jpg',
-    updatedAt: new Date().toISOString()
+    updatedAt: NOW
   }
 ]
 
@@ -64,10 +67,31 @@ export default function VenuesPage() {
   const router = useRouter()
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
   const [selectedVenueId, setSelectedVenueId] = useState<string | undefined>()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isNavigating, setIsNavigating] = useState(false)
 
-  const handleVenueSelect = (venue: Venue) => {
-    setSelectedVenueId(venue.id)
-    router.push(`/venues/${venue.id}`)
+  const filteredVenues = useMemo(() => {
+    if (!searchQuery) return mockVenues
+    const query = searchQuery.toLowerCase()
+    return mockVenues.filter(venue => 
+      venue.name.toLowerCase().includes(query) ||
+      venue.description.toLowerCase().includes(query) ||
+      venue.music.toLowerCase().includes(query)
+    )
+  }, [searchQuery])
+
+  const handleVenueSelect = async (venue: Venue) => {
+    try {
+      setIsNavigating(true)
+      setSelectedVenueId(venue.id)
+      await router.push(`/venues/${venue.id}`)
+    } catch (error) {
+      console.error('Failed to navigate to venue:', error)
+      // Reset selection if navigation fails
+      setSelectedVenueId(undefined)
+    } finally {
+      setIsNavigating(false)
+    }
   }
 
   return (
@@ -77,21 +101,23 @@ export default function VenuesPage() {
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setViewMode('list')}
+            disabled={isNavigating}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
               viewMode === 'list' 
                 ? 'bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] text-white' 
                 : 'bg-white/5 text-white/80 hover:bg-white/10'
-            }`}
+            } ${isNavigating ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <List className="w-5 h-5" /> List
           </button>
           <button
             onClick={() => setViewMode('map')}
+            disabled={isNavigating}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
               viewMode === 'map'
                 ? 'bg-gradient-to-r from-[#9D5CFF] to-[#FF3B7F] text-white'
                 : 'bg-white/5 text-white/80 hover:bg-white/10'
-            }`}
+            } ${isNavigating ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <MapIcon className="w-5 h-5" /> Map
           </button>
@@ -99,6 +125,8 @@ export default function VenuesPage() {
         <div className="relative">
           <input
             type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Find venues near you..."
             className="w-full px-4 py-2 pl-10 bg-white/5 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
           />
@@ -109,14 +137,14 @@ export default function VenuesPage() {
       <main className="flex-1">
         {viewMode === 'list' ? (
           <VenueList
-            venues={mockVenues}
+            venues={filteredVenues}
             selectedVenueId={selectedVenueId}
             onVenueSelect={handleVenueSelect}
           />
         ) : (
           <div className="h-[calc(100dvh-200px)]">
             <VenueMap
-              venues={mockVenues}
+              venues={filteredVenues}
               selectedVenueId={selectedVenueId}
               onVenueSelect={handleVenueSelect}
             />

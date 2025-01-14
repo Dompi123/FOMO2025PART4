@@ -3,38 +3,37 @@ import { Inter } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 import { ViewportHeightFix } from './components/viewport-fix'
 import { ServiceWorkerRegistration } from './components/service-worker-registration'
+import { ErrorBoundary } from '../src/components/ErrorBoundary'
+import { Analytics } from '../src/components/Analytics'
+import { ThemeProvider } from '../src/components/ThemeProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
-export const viewport: Viewport = {
+export const viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  minimumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#070707'
 }
 
-export const metadata: Metadata = {
+export const metadata = {
   title: 'FOMO',
   description: 'Skip the line, join the vibe',
   manifest: '/manifest.json',
-  icons: {
-    icon: [
-      { url: '/favicon.ico', sizes: '32x32' },
-      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
-    ],
-    apple: [
-      { url: '/apple-touch-icon.png' },
-    ],
-  },
+  themeColor: '#070707',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'FOMO'
-  }
+    title: 'FOMO',
+  },
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    viewportFit: 'cover',
+  },
 }
 
 export default function RootLayout({
@@ -43,11 +42,23 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.className} min-h-screen bg-[#070707] text-white antialiased overflow-x-hidden`}>
-        <ViewportHeightFix />
-        <ServiceWorkerRegistration />
-        {children}
+    <html 
+      lang="en" 
+      className="dark"
+      suppressHydrationWarning
+    >
+      <body 
+        className={`${inter.className} min-h-screen bg-[#070707] text-white antialiased overflow-x-hidden`}
+        suppressHydrationWarning
+      >
+        <ErrorBoundary>
+          <ThemeProvider>
+            <ViewportHeightFix />
+            <ServiceWorkerRegistration />
+            {children}
+            <Analytics />
+          </ThemeProvider>
+        </ErrorBoundary>
       </body>
     </html>
   )

@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion';
-import { Building2, Ticket, User } from 'lucide-react';
+import { Building2, Ticket, User, LucideIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Screen } from '@/types';
 
@@ -10,14 +10,21 @@ interface BottomNavProps {
   onNavigate: (screen: Screen) => void;
 }
 
+interface NavItem {
+  id: Extract<Screen, 'venues' | 'passes' | 'profile'>;
+  icon: LucideIcon;
+  label: string;
+  route: string;
+}
+
 export const BottomNav = ({ currentScreen, onNavigate }: BottomNavProps) => {
   const router = useRouter();
 
-  const navItems = [
-    { id: 'venues' as const, icon: Building2, label: 'Venues', route: '/venues' },
-    { id: 'passes' as const, icon: Ticket, label: 'My Passes', route: '/passes' },
-    { id: 'profile' as const, icon: User, label: 'Profile', route: '/profile' }
-  ];
+  const navItems: readonly NavItem[] = [
+    { id: 'venues', icon: Building2, label: 'Venues', route: '/venues' },
+    { id: 'passes', icon: Ticket, label: 'My Passes', route: '/passes' },
+    { id: 'profile', icon: User, label: 'Profile', route: '/profile' }
+  ] as const;
 
   const handleNavigate = (screen: Screen, route: string) => {
     onNavigate(screen);

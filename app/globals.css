@@ -3,171 +3,64 @@
 @tailwind utilities;
 
 :root {
-  /* Dynamic viewport units */
-  --vh: 1vh;
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
-  
-  /* Colors */
-  --foreground-rgb: 255, 255, 255;
   --background-rgb: 7, 7, 7;
-  
-  /* Gradients */
   --gradient-primary: linear-gradient(to right, #9D5CFF, #FF3B7F);
-  --gradient-surface: linear-gradient(to bottom right, rgba(157,92,255,0.2), rgba(255,59,127,0.2));
-  
-  /* Layout */
-  --header-height: 60px;
-  --bottom-nav-height: 64px;
-  --content-spacing: 16px;
-  --status-bar-height: env(safe-area-inset-top, 20px);
+  --gradient-surface: linear-gradient(to bottom right, rgba(157, 92, 255, 0.1), rgba(255, 59, 127, 0.1));
+  --vh: 1vh;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
 }
 
-/* Base styles */
-html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-  touch-action: manipulation;
-  height: 100%;
-  height: -webkit-fill-available;
-  width: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  background-color: rgb(var(--background-rgb));
+@supports (height: 100dvh) {
+  :root {
+    --vh: 1dvh;
+  }
 }
 
+html,
 body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
-  min-height: 100%;
-  min-height: -webkit-fill-available;
-  width: 100%;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overscroll-behavior: none;
-  position: relative;
-  display: flex;
-  flex-direction: column;
+  min-height: 100vh;
+  min-height: calc(var(--vh) * 100);
+  @apply bg-[#070707] text-white;
 }
 
-/* Header styles */
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  padding-top: calc(var(--status-bar-height) + 16px);
-  padding-bottom: 16px;
-  background-color: rgb(var(--background-rgb));
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.app-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--status-bar-height);
-  background-color: rgb(var(--background-rgb));
-  z-index: 1;
-}
-
-/* Safe area utilities */
-.h-safe-top {
-  height: var(--safe-top);
-}
-
-.h-safe-bottom {
-  height: var(--safe-bottom);
-}
-
-.pt-safe {
-  padding-top: var(--safe-top);
-}
-
-.pb-safe {
-  padding-bottom: var(--safe-bottom);
-}
-
-.px-safe {
-  padding-left: var(--safe-left);
-  padding-right: var(--safe-right);
-}
-
-.mt-safe {
-  margin-top: var(--safe-top);
-}
-
-.mb-safe {
-  margin-bottom: var(--safe-bottom);
-}
-
-/* Content area */
+/* Main content area */
 .content-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: var(--content-spacing);
-  padding-top: calc(var(--status-bar-height) + var(--header-height));
-  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  height: calc(100vh - var(--header-height) - var(--bottom-nav-height));
+  height: calc((var(--vh) * 100) - var(--header-height) - var(--bottom-nav-height));
+  padding-top: max(env(safe-area-inset-top), 16px);
+  padding-bottom: max(env(safe-area-inset-bottom), 16px);
+  @apply overflow-y-auto;
 }
 
 /* Bottom navigation */
 .bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: calc(var(--bottom-nav-height) + var(--safe-bottom));
-  background-color: rgb(var(--background-rgb));
-  padding-bottom: var(--safe-bottom);
-  z-index: 50;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  height: var(--bottom-nav-height);
+  padding-bottom: env(safe-area-inset-bottom);
+  @apply fixed bottom-0 left-0 right-0 bg-[#070707] border-t border-white/10;
 }
 
-/* iOS specific styles */
+/* Header area */
+.header {
+  height: var(--header-height);
+  padding-top: env(safe-area-inset-top);
+  @apply fixed top-0 left-0 right-0 bg-[#070707] z-50;
+}
+
+/* iOS specific */
 @supports (-webkit-touch-callout: none) {
-  .h-screen {
-    height: 100vh;
-    height: calc(var(--vh, 1vh) * 100);
-    height: -webkit-fill-available;
-  }
-  
   .min-h-screen {
-    min-height: 100vh;
-    min-height: calc(var(--vh, 1vh) * 100);
     min-height: -webkit-fill-available;
   }
-  
-  .max-h-screen {
-    max-height: 100vh;
-    max-height: calc(var(--vh, 1vh) * 100);
-    max-height: -webkit-fill-available;
-  }
 }
 
-/* PWA specific styles */
+/* PWA display modes */
 @media all and (display-mode: standalone) {
-  body {
-    /* Ensure full height in standalone mode */
-    height: 100vh;
-    height: calc(var(--vh, 1vh) * 100);
-    height: -webkit-fill-available;
+  .standalone-only {
+    display: block;
   }
   
-  /* Add padding for home indicator on newer iPhones */
-  .has-home-indicator {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  
-  /* Adjust header for notched devices */
-  .app-header {
-    padding-top: calc(var(--status-bar-height) + 16px);
+  .browser-only {
+    display: none;
   }
 } 
