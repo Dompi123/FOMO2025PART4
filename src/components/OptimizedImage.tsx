@@ -34,8 +34,10 @@ export function OptimizedImage({
 
   const handleError = () => {
     setHasError(true)
-    analytics.trackError({
-      message: 'Image failed to load',
+    analytics.trackError('error', {
+      error: {
+        message: 'Image failed to load',
+      },
       properties: { src }
     })
   }

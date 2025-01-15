@@ -1,63 +1,122 @@
+export type Screen = 'venues' | 'venue' | 'passes' | 'profile' | 'menu' | 'checkout' | 'settings';
+
+export type PaymentMethod = 'credit_card' | 'apple_pay' | 'google_pay';
+
 export interface Venue {
   id: string;
   name: string;
   description: string;
-  latitude: number;
-  longitude: number;
+  imageUrl: string;
+  blurDataURL?: string;
+  location: string;
+  currentOccupancy: number;
+  maxCapacity: number;
+  openingHours: {
+    open: string;
+    close: string;
+  };
   rating: number;
   reviews: number;
-  status: 'open' | 'closed';
   waitTime: number;
   capacity: number;
-  music: string;
+  music?: string;
   price: number;
-  imageUrl: string;
-  updatedAt: string;
-  version: number;
+  boost: number;
+  vibes: number;
+  status: 'open' | 'closed' | 'at-capacity';
+  tags: string[];
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  points: number;
+  preferences: {
+    notifications: boolean;
+    theme: 'light' | 'dark' | 'system';
+  };
+}
+
+export interface Pass {
+  id: string;
+  venueId: string;
+  userId: string;
+  type: 'skip-line' | 'vip';
+  status: 'active' | 'used' | 'expired';
+  validFrom: string;
+  validUntil: string;
+  qrCode: string;
 }
 
 export interface Drink {
   id: string;
   name: string;
-  price: number;
   description: string;
-  popularity: string;
-  points: number;
-  image?: string;
+  price: number;
+  imageUrl?: string;
+  category: 'beer' | 'wine' | 'cocktail' | 'spirit' | 'soft';
+  available: boolean;
+  preparationTime: number;
 }
 
-export interface OrderItem extends Drink {
+export interface OrderItem {
+  id: string;
+  drinkId: string;
   quantity: number;
+  price: number;
+  specialInstructions?: string;
+  status: 'pending' | 'preparing' | 'ready' | 'delivered';
 }
 
 export interface Order {
   id: string;
+  userId: string;
   venueId: string;
-  items: Array<{
-    id: string;
-    name: string;
-    quantity: number;
-    price: number;
-  }>;
-  status: 'pending' | 'confirmed' | 'ready' | 'completed';
+  items: OrderItem[];
   total: number;
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
   createdAt: string;
-  version: number;
-}
-
-export interface Profile {
-  id: string;
-  name: string;
-  email: string;
-  preferences: Record<string, any>;
-  lastSyncedAt: string;
-  version: number;
+  updatedAt: string;
+  paymentStatus: 'pending' | 'paid' | 'failed';
+  paymentMethod?: PaymentMethod;
 }
 
 export interface ApiResponse<T> {
   data: T;
-  version?: number;
+  error?: string;
+  meta?: {
+    total?: number;
+    page?: number;
+    limit?: number;
+  };
+}
+
+export interface SyncState {
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingOperations: number;
+  lastSyncTime?: string;
   error?: string;
 }
 
-export type Screen = 'venues' | 'venue' | 'menu' | 'checkout' | 'passes' | 'profile'; 
+export interface PaymentDetails {
+  type: PaymentMethod;
+  cardNumber?: string;
+  expiryMonth?: string;
+  expiryYear?: string;
+  cvv?: string;
+  billingAddress?: {
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+} 

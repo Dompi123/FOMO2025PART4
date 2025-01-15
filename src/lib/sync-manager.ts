@@ -1,291 +1,168 @@
-import { Profile, Venue } from '@/types'
-import { apiClient } from './api-client'
 import { offlineStorage } from './offline-storage'
-import { useNetworkState } from './network-state'
-import { analytics } from './analytics'
+import type { SyncState } from '../types'
 
-interface OrderData {
-  venueId: string
-  items: Array<{
-    id: string
-    quantity: number
-  }>
+class NetworkError extends Error {
+  constructor(message: string, public status: number) {
+    super(message)
+    this.name = 'NetworkError'
+  }
 }
 
-export interface SyncOperation {
+class SyncError extends Error {
+  constructor(message: string, public operation: string, public originalError: Error) {
+    super(message)
+    this.name = 'SyncError'
+  }
+}
+
+interface SyncableOperation {
   id: string
-  type: 'create' | 'update' | 'delete'
-  entity: 'order' | 'profile'
-  data: OrderData | Partial<Profile>
-  timestamp: number
+  type: 'CREATE' | 'UPDATE' | 'DELETE'
+  endpoint: string
+  payload: any
+  timestamp: string
   retryCount: number
-  version?: number
-  conflictResolution?: 'client' | 'server'
 }
 
-interface ApiResponse<T> {
-  data: T
-  version?: number
-}
-
-export class SyncManager {
-  private syncQueue: SyncOperation[] = []
+class SyncManager {
+  private readonly MAX_RETRIES = 3
+  private readonly RETRY_DELAY = 1000 // 1 second
   private isSyncing = false
-  private syncInterval: ReturnType<typeof setInterval> | null = null
-  private maxRetries = 5
-  private retryDelay = 1000 // Start with 1 second
+  private subscribers: ((state: SyncState) => void)[] = []
+  private currentState: SyncState = {
+    isOnline: navigator.onLine,
+    isSyncing: false,
+    pendingOperations: 0,
+    lastSyncTime: undefined,
+    error: undefined
+  }
 
-  async init() {
-    // Load pending operations from storage
-    const storedQueue = await offlineStorage.getSyncQueue()
-    if (storedQueue) {
-      this.syncQueue = storedQueue
-    }
+  constructor() {
+    window.addEventListener('online', () => this.updateState({ isOnline: true }))
+    window.addEventListener('offline', () => this.updateState({ isOnline: false }))
+  }
 
-    // Start periodic sync with exponential backoff
-    this.startPeriodicSync()
+  private updateState(partialState: Partial<SyncState>) {
+    this.currentState = { ...this.currentState, ...partialState }
+    this.notifySubscribers()
+  }
 
-    // Listen for network changes
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => {
-        this.startPeriodicSync()
-        this.sync() // Try immediate sync when coming online
-      })
-      window.addEventListener('offline', () => {
-        if (this.syncInterval) {
-          clearInterval(this.syncInterval)
-          this.syncInterval = null
-        }
-      })
+  private notifySubscribers() {
+    this.subscribers.forEach(subscriber => subscriber(this.currentState))
+  }
+
+  subscribe(callback: (state: SyncState) => void): () => void {
+    this.subscribers.push(callback)
+    callback(this.currentState) // Initial state
+    return () => {
+      this.subscribers = this.subscribers.filter(sub => sub !== callback)
     }
   }
 
-  private startPeriodicSync() {
-    if (this.syncInterval) return
-
-    this.syncInterval = setInterval(() => {
-      if (useNetworkState.getState().isOnline) {
-        this.sync()
-      }
-    }, 60000) // Every minute when online
-  }
-
-  async queueOperation(operation: Omit<SyncOperation, 'timestamp' | 'retryCount' | 'version'>) {
-    const syncOp: SyncOperation = {
+  async queueOperation(operation: Omit<SyncableOperation, 'id' | 'timestamp' | 'retryCount'>): Promise<void> {
+    const syncOp: SyncableOperation = {
+      id: crypto.randomUUID(),
       ...operation,
-      timestamp: Date.now(),
-      retryCount: 0,
-      version: await this.getCurrentEntityVersion(operation.entity, operation.data)
+      timestamp: new Date().toISOString(),
+      retryCount: 0
     }
-
-    this.syncQueue.push(syncOp)
-    await this.persistQueue()
-
-    // Try to sync immediately if online
-    if (useNetworkState.getState().isOnline) {
-      await this.sync()
-    }
-
-    // Store operation in IndexedDB for offline resilience
-    await offlineStorage.saveOperation(syncOp)
-  }
-
-  private async getCurrentEntityVersion(entity: string, data: any): Promise<number> {
-    try {
-      switch (entity) {
-        case 'order':
-          const order = await offlineStorage.getOrder((data as OrderData).venueId)
-          return order?.version || 0
-        case 'profile':
-          const profile = await offlineStorage.getUserData()
-          return profile?.version || 0
-        default:
-          return 0
-      }
-    } catch {
-      return 0
-    }
-  }
-
-  private async persistQueue() {
-    await offlineStorage.saveSyncQueue(this.syncQueue)
-  }
-
-  async sync() {
-    if (this.isSyncing || !useNetworkState.getState().isOnline || this.syncQueue.length === 0) {
-      return
-    }
-
-    this.isSyncing = true
 
     try {
-      // Process queue in order
-      const operations = [...this.syncQueue]
-      this.syncQueue = []
-      await this.persistQueue()
+      await offlineStorage.saveOperation(syncOp)
+      await this.attemptSync()
+    } catch (error) {
+      throw new SyncError(
+        'Failed to queue operation',
+        JSON.stringify(operation),
+        error instanceof Error ? error : new Error(String(error))
+      )
+    }
+  }
 
+  async attemptSync(): Promise<void> {
+    if (this.isSyncing) return
+
+    this.updateState({ isSyncing: true })
+    try {
+      const operations = await offlineStorage.getPendingOperations()
+      this.updateState({ pendingOperations: operations.length })
+      
       for (const operation of operations) {
         try {
-          await this.processSyncOperation(operation)
-        } catch (error) {
-          const shouldRetry = this.handleSyncError(operation, error)
-          if (shouldRetry) {
-            // Add back to queue with incremented retry count
-            operation.retryCount++
-            this.syncQueue.push(operation)
-            await this.persistQueue()
-          }
-          analytics.trackError({
-            message: 'Sync operation failed',
-            operation,
-            error,
+          await this.processSyncOperation(operation as SyncableOperation)
+          await offlineStorage.removeOperation(operation.id)
+          this.updateState({ 
+            pendingOperations: this.currentState.pendingOperations - 1,
+            error: undefined
           })
+        } catch (error) {
+          if (operation.retryCount < this.MAX_RETRIES) {
+            const updatedOp = {
+              ...operation,
+              retryCount: operation.retryCount + 1
+            }
+            await offlineStorage.saveOperation(updatedOp)
+            await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY * updatedOp.retryCount))
+          } else {
+            console.error(`Operation ${operation.id} failed after ${this.MAX_RETRIES} retries:`, error)
+            this.updateState({ 
+              error: `Operation failed after ${this.MAX_RETRIES} retries: ${error instanceof Error ? error.message : String(error)}` 
+            })
+            await offlineStorage.removeOperation(operation.id)
+          }
         }
       }
-
-      // Sync venue data from server with conflict resolution
-      await this.syncVenues()
-
-      // Sync user profile with conflict resolution
-      await this.syncProfile()
-
-    } catch (error) {
-      analytics.trackError({
-        message: 'Sync failed',
-        error,
+      
+      this.updateState({ 
+        lastSyncTime: new Date().toISOString(),
+        error: undefined
       })
+    } catch (error) {
+      const syncError = new SyncError(
+        'Sync attempt failed',
+        'global',
+        error instanceof Error ? error : new Error(String(error))
+      )
+      this.updateState({ error: syncError.message })
+      throw syncError
     } finally {
-      this.isSyncing = false
+      this.updateState({ isSyncing: false })
     }
   }
 
-  private async syncVenues() {
+  private async processSyncOperation(operation: SyncableOperation): Promise<void> {
+    const { endpoint, type, payload } = operation
+    
+    const response = await fetch(endpoint, {
+      method: type === 'DELETE' ? 'DELETE' : type === 'CREATE' ? 'POST' : 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        // Add auth headers here
+      },
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.ok) {
+      throw new NetworkError(
+        `Failed to process operation: ${response.status} ${response.statusText}`,
+        response.status
+      )
+    }
+  }
+
+  // Register for background sync if available
+  async registerBackgroundSync(): Promise<void> {
+    if (!('serviceWorker' in navigator)) return
+
     try {
-      const response = await apiClient.getVenues()
-      const localVenues = await offlineStorage.getVenues()
-      
-      // Compare versions and resolve conflicts
-      if (this.needsConflictResolution(localVenues[0], response.data[0])) {
-        const resolvedVenues = await this.resolveVenueConflicts(localVenues, response.data)
-        await offlineStorage.saveVenues(resolvedVenues)
-      } else {
-        await offlineStorage.saveVenues(response.data)
+      const registration = await navigator.serviceWorker.ready as ServiceWorkerRegistration & {
+        sync?: { register(tag: string): Promise<void> }
+      }
+      if (registration.sync) {
+        await registration.sync.register('sync-operations')
       }
     } catch (error) {
-      console.error('Failed to sync venues:', error)
-      // Continue with local data
-    }
-  }
-
-  private async syncProfile() {
-    try {
-      const response = await apiClient.getProfile()
-      const localProfile = await offlineStorage.getUserData()
-      
-      if (localProfile && this.needsConflictResolution(localProfile, response.data)) {
-        const resolvedProfile = await this.resolveProfileConflicts(localProfile, response.data)
-        await offlineStorage.saveUserData(resolvedProfile)
-      } else {
-        await offlineStorage.saveUserData(response.data)
-      }
-    } catch (error) {
-      console.error('Failed to sync profile:', error)
-      // Continue with local data
-    }
-  }
-
-  private needsConflictResolution(localData: { version?: number } | undefined, serverData: { version?: number } | undefined): boolean {
-    return (localData?.version || 0) !== (serverData?.version || 0)
-  }
-
-  private async resolveVenueConflicts(localVenues: Venue[], serverVenues: Venue[]): Promise<Venue[]> {
-    // Implement venue-specific conflict resolution
-    // For now, server wins for venues as they're mostly read-only
-    return serverVenues
-  }
-
-  private async resolveProfileConflicts(localProfile: Profile, serverProfile: Profile): Promise<Profile> {
-    // Merge strategy: Keep local changes for certain fields, take server data for others
-    return {
-      ...serverProfile,
-      // Keep local preferences if they exist
-      preferences: localProfile?.preferences || serverProfile.preferences,
-    }
-  }
-
-  private handleSyncError(operation: SyncOperation, error: any): boolean {
-    // Determine if we should retry based on error type and retry count
-    if (operation.retryCount >= this.maxRetries) {
-      return false
-    }
-
-    // Calculate exponential backoff delay
-    const delay = Math.min(this.retryDelay * Math.pow(2, operation.retryCount), 60000)
-    setTimeout(() => this.sync(), delay)
-
-    return true
-  }
-
-  private async processSyncOperation(operation: SyncOperation) {
-    try {
-      switch (operation.entity) {
-        case 'order':
-          const orderData = operation.data as OrderData
-          await apiClient.createOrder(orderData.venueId, orderData.items, operation.version)
-          break
-        case 'profile':
-          const profileData = operation.data as Partial<Profile>
-          await apiClient.updateProfile(profileData, operation.version)
-          break
-      }
-
-      // Remove from offline storage after successful sync
-      await offlineStorage.removeOperation(operation.id)
-    } catch (error) {
-      if (this.isConflictError(error)) {
-        await this.handleConflict(operation)
-      }
-      throw error
-    }
-  }
-
-  private isConflictError(error: any): boolean {
-    return error?.status === 409 || error?.message?.includes('conflict')
-  }
-
-  private async handleConflict(operation: SyncOperation) {
-    // Implement conflict resolution strategy
-    if (operation.conflictResolution === 'client') {
-      // Force client changes
-      await apiClient.forceSyncOperation({
-        type: operation.type,
-        entity: operation.entity,
-        data: operation.data,
-        version: operation.version || 0
-      })
-    } else {
-      // Default to server version
-      await this.acceptServerChanges(operation)
-    }
-  }
-
-  private async acceptServerChanges(operation: SyncOperation) {
-    // Fetch and apply server version
-    switch (operation.entity) {
-      case 'profile':
-        const { data: profile } = await apiClient.getProfile()
-        await offlineStorage.saveUserData(profile)
-        break
-      // Add other entities as needed
-    }
-  }
-
-  cleanup() {
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval)
-    }
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('online', this.sync)
+      console.error('Background sync registration failed:', error)
     }
   }
 }

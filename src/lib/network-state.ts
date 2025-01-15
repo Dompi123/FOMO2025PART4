@@ -2,46 +2,35 @@ import { create } from 'zustand'
 
 interface NetworkState {
   isOnline: boolean
-  lastChecked: number | null
-  checkConnection: () => Promise<boolean>
-  setOnline: (status: boolean) => void
+  subscribe: (callback: (isOnline: boolean) => void) => () => void
+  getState: () => { isOnline: boolean }
 }
 
-export const useNetworkState = create<NetworkState>((set, get) => ({
-  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
-  lastChecked: null,
+const useNetworkState = create<NetworkState>((set, get) => ({
+  isOnline: typeof window !== 'undefined' ? navigator.onLine : true,
+  subscribe: (callback) => {
+    const handleOnline = () => {
+      set({ isOnline: true })
+      callback(true)
+    }
+    const handleOffline = () => {
+      set({ isOnline: false })
+      callback(false)
+    }
 
-  checkConnection: async () => {
-    try {
-      const response = await fetch('/api/health', {
-        method: 'HEAD',
-        cache: 'no-cache',
-      })
-      const isOnline = response.ok
-      set({ isOnline, lastChecked: Date.now() })
-      return isOnline
-    } catch (error) {
-      set({ isOnline: false, lastChecked: Date.now() })
-      return false
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline)
+      window.addEventListener('offline', handleOffline)
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline)
+        window.removeEventListener('offline', handleOffline)
+      }
     }
   },
-
-  setOnline: (status: boolean) => {
-    set({ isOnline: status, lastChecked: Date.now() })
-  },
+  getState: () => ({ isOnline: get().isOnline })
 }))
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    useNetworkState.getState().setOnline(true)
-  })
-
-  window.addEventListener('offline', () => {
-    useNetworkState.getState().setOnline(false)
-  })
-
-  // Check connection status periodically
-  setInterval(() => {
-    useNetworkState.getState().checkConnection()
-  }, 30000) // Every 30 seconds
-} 
+export { useNetworkState } 

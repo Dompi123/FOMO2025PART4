@@ -1,185 +1,164 @@
-import { Profile, Venue } from '@/types'
+import { NetworkError, AuthenticationError, ValidationError } from './errors'
+import type {
+  Venue,
+  Order,
+  OrderItem,
+  Profile,
+  ApiSuccessResponse,
+  ApiErrorResponse
+} from '../types/api'
 
-interface ApiResponse<T> {
-  data: T
-  version?: number
-  error?: string
-}
-
-interface ApiError extends Error {
-  status?: number
-  code?: string
-}
+type ApiResponse<T> = ApiSuccessResponse<T>
 
 class ApiClient {
   private baseUrl: string
-  private token: string | null = null
-  private maxRetries: number = 3
-  private retryDelay: number = 1000 // 1 second
+  private authToken: string | null = null
+  private readonly MAX_RETRIES = 3
+  private readonly RETRY_DELAY = 1000 // 1 second
 
-  constructor() {
-    this.baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api'
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
   }
 
-  setToken(token: string) {
-    this.token = token
+  setAuthToken(token: string | null) {
+    this.authToken = token
   }
 
-  clearToken() {
-    this.token = null
-  }
-
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {},
-    version?: number
-  ): Promise<ApiResponse<T>> {
+  private getHeaders(): HeadersInit {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-      ...(version ? { 'If-Match': version.toString() } : {}),
-      ...options.headers,
+      'Accept': 'application/json'
     }
 
-    const config: RequestInit = {
-      ...options,
-      headers,
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`
     }
 
-    let lastError: Error | null = null
-    let retryCount = 0
+    return headers
+  }
 
-    while (retryCount < this.maxRetries) {
-      try {
-        const response = await fetch(`${this.baseUrl}${endpoint}`, config)
-        
-        if (!response.ok) {
-          const error = new Error('API request failed') as ApiError
-          error.status = response.status
-          if (response.status === 409) {
-            error.code = 'CONFLICT'
-          }
-          throw error
-        }
+  private async handleResponse<T>(response: Response): Promise<T> {
+    const contentType = response.headers.get('content-type')
+    const isJson = contentType?.includes('application/json')
+    const data = isJson ? await response.json() : await response.text()
 
-        const data = await response.json()
-        return {
-          data,
-          version: parseInt(response.headers.get('ETag') || '0', 10),
-        }
-      } catch (error) {
-        lastError = error as Error
-        if ((error as ApiError).status === 409) {
-          // Don't retry on conflict errors
-          throw error
-        }
-        retryCount++
-        if (retryCount < this.maxRetries) {
-          await new Promise(resolve => 
-            setTimeout(resolve, this.retryDelay * Math.pow(2, retryCount))
-          )
-        }
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new AuthenticationError('Authentication required')
       }
+
+      if (response.status === 422 && isJson) {
+        const apiError = data as ApiErrorResponse
+        throw new ValidationError(
+          apiError.message || 'Validation failed',
+          apiError.errors || {}
+        )
+      }
+
+      throw new NetworkError(
+        isJson ? (data as ApiErrorResponse).message : data,
+        response.status
+      )
     }
 
-    throw lastError || new Error('Request failed after retries')
+    return data as T
   }
 
-  // Auth endpoints
-  async login(email: string, password: string): Promise<ApiResponse<{ token: string }>> {
-    return this.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
+  private async fetchWithRetry<T>(
+    input: string,
+    init?: RequestInit,
+    retryCount = 0
+  ): Promise<T> {
+    try {
+      const response = await fetch(input, init)
+      return await this.handleResponse<T>(response)
+    } catch (error) {
+      // Don't retry on certain errors
+      if (
+        error instanceof AuthenticationError ||
+        error instanceof ValidationError ||
+        retryCount >= this.MAX_RETRIES
+      ) {
+        throw error
+      }
+
+      // Exponential backoff
+      await new Promise(resolve => 
+        setTimeout(resolve, this.RETRY_DELAY * Math.pow(2, retryCount))
+      )
+
+      return this.fetchWithRetry<T>(input, init, retryCount + 1)
+    }
+  }
+
+  async get<T>(endpoint: string, params?: Record<string, string>): Promise<ApiResponse<T>> {
+    const url = new URL(`${this.baseUrl}${endpoint}`)
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.append(key, value)
+      })
+    }
+
+    return this.fetchWithRetry<ApiResponse<T>>(url.toString(), {
+      method: 'GET',
+      headers: this.getHeaders()
     })
   }
 
-  async signup(email: string, password: string): Promise<ApiResponse<{ token: string }>> {
-    return this.request('/auth/signup', {
+  async post<T>(endpoint: string, data?: unknown): Promise<ApiResponse<T>> {
+    return this.fetchWithRetry<ApiResponse<T>>(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      headers: this.getHeaders(),
+      body: data ? JSON.stringify(data) : undefined
     })
   }
 
-  async logout(): Promise<void> {
-    if (!this.token) return
-    await this.request('/auth/logout', {
-      method: 'POST',
+  async put<T>(endpoint: string, data: unknown): Promise<ApiResponse<T>> {
+    return this.fetchWithRetry<ApiResponse<T>>(`${this.baseUrl}${endpoint}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data)
     })
-    this.clearToken()
+  }
+
+  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
+    return this.fetchWithRetry<ApiResponse<T>>(`${this.baseUrl}${endpoint}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    })
   }
 
   // Venue endpoints
-  async getVenues(): Promise<ApiResponse<Venue[]>> {
-    return this.request('/venues')
+  async getVenues(params?: { lat?: number; lng?: number; radius?: number }) {
+    return this.get<Venue[]>('/venues', params as Record<string, string>)
   }
 
-  async getVenue(id: string): Promise<ApiResponse<Venue>> {
-    return this.request(`/venues/${id}`)
+  async getVenue(id: string) {
+    return this.get<Venue>(`/venues/${id}`)
   }
 
   // Order endpoints
-  async createOrder(
-    venueId: string,
-    items: Array<{ id: string; quantity: number }>,
-    version?: number
-  ): Promise<ApiResponse<{ orderId: string }>> {
-    return this.request(
-      '/orders',
-      {
-        method: 'POST',
-        body: JSON.stringify({ venueId, items }),
-      },
-      version
-    )
+  async createOrder(venueId: string, items: OrderItem[]) {
+    return this.post<Order>('/orders', { venueId, items })
   }
 
-  async getOrders(): Promise<ApiResponse<Array<{
-    id: string
-    venueId: string
-    items: Array<{
-      id: string
-      quantity: number
-    }>
-    status: string
-    createdAt: string
-  }>>> {
-    return this.request('/orders')
+  async getOrder(id: string) {
+    return this.get<Order>(`/orders/${id}`)
   }
 
-  // Profile endpoints
-  async getProfile(): Promise<ApiResponse<Profile>> {
-    return this.request('/profile')
+  async updateOrder(id: string, data: Partial<Order>) {
+    return this.put<Order>(`/orders/${id}`, data)
   }
 
-  async updateProfile(
-    data: Partial<Profile>,
-    version?: number
-  ): Promise<ApiResponse<Profile>> {
-    return this.request(
-      '/profile',
-      {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      },
-      version
-    )
+  // User endpoints
+  async getProfile() {
+    return this.get<Profile>('/profile')
   }
 
-  // Force sync operation (for conflict resolution)
-  async forceSyncOperation(operation: {
-    type: string
-    entity: string
-    data: any
-    version: number
-  }): Promise<ApiResponse<any>> {
-    return this.request('/sync/force', {
-      method: 'POST',
-      body: JSON.stringify(operation),
-      headers: {
-        'X-Force-Sync': 'true',
-      },
-    })
+  async updateProfile(data: Partial<Profile>) {
+    return this.put<Profile>('/profile', data)
   }
 }
 
-export const apiClient = new ApiClient() 
+// Create a singleton instance
+export const apiClient = new ApiClient(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api') 

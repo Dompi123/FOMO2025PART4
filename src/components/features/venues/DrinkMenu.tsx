@@ -58,27 +58,30 @@ export function DrinkMenu({ venue, onNavigate, onBack, disabled }: DrinkMenuProp
       name: 'Single Mixed Drink',
       price: 4.00,
       description: 'Classic mixed drink',
-      popularity: 'High',
-      points: 10,
-      image: '/api/placeholder/80/80'
+      imageUrl: '/api/placeholder/80/80',
+      category: 'cocktail',
+      available: true,
+      preparationTime: 5
     },
     {
       id: '2',
       name: 'Truly Hard Seltzer',
       price: 4.00,
       description: 'Light and refreshing',
-      popularity: 'Medium',
-      points: 8,
-      image: '/api/placeholder/80/80'
+      imageUrl: '/api/placeholder/80/80',
+      category: 'beer',
+      available: true,
+      preparationTime: 2
     },
     {
       id: '3',
       name: 'Green Tea Shot',
       price: 4.00,
       description: 'Sweet and smooth',
-      popularity: 'Low',
-      points: 6,
-      image: '/api/placeholder/80/80'
+      imageUrl: '/api/placeholder/80/80',
+      category: 'spirit',
+      available: true,
+      preparationTime: 3
     }
   ];
 
@@ -260,12 +263,12 @@ export function DrinkMenu({ venue, onNavigate, onBack, disabled }: DrinkMenuProp
                   <div className="flex-1">
                     <h3 className="font-medium">{drink.name}</h3>
                     <p className="text-sm text-white/60">{drink.description}</p>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2">
                       <div className="text-sm font-medium">${drink.price.toFixed(2)}</div>
                       <div className="text-xs text-white/40">•</div>
-                      <div className="text-sm text-white/60">{drink.popularity}</div>
+                      <div className="text-sm text-white/60">{drink.category}</div>
                       <div className="text-xs text-white/40">•</div>
-                      <div className="text-sm text-[#9D5CFF]">+{drink.points} pts</div>
+                      <div className="text-sm text-[#9D5CFF]">{drink.preparationTime}m</div>
                     </div>
                   </div>
                 </div>

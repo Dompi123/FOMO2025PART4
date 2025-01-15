@@ -26,10 +26,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
-    analytics.trackError({
-      message: error.message,
-      stack: error.stack,
-      componentStack: errorInfo.componentStack,
+    analytics.trackError('error', {
+      error: {
+        message: error.message,
+        stack: error.stack,
+      }
     })
     this.setState({ error, errorInfo })
   }

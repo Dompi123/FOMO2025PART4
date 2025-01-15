@@ -1,25 +1,20 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { VenueList } from '../../../src/components/features/venues/VenueList'
 import dynamic from 'next/dynamic'
 import type { Venue } from '../../../src/types'
 import { List, Map as MapIcon, Search } from 'lucide-react'
+import { MapSkeleton } from '../../../src/components/skeletons/MapSkeleton'
 
 const VenueMap = dynamic(
-  () => import('../../../src/components/features/venues/VenueMap'),
+  () => import('@/components/features/venues/VenueMap').then(mod => mod.VenueMap),
   { 
     loading: () => <MapSkeleton />,
     ssr: false
   }
 )
-
-function MapSkeleton() {
-  return (
-    <div className="w-full h-full bg-gray-900 animate-pulse rounded-lg" />
-  )
-}
 
 // Fixed timestamps to avoid re-renders
 const NOW = new Date().toISOString()
@@ -28,42 +23,60 @@ const mockVenues: Venue[] = [
   {
     id: '1',
     name: 'Neon Lounge',
-    description: 'Modern nightclub with great music and atmosphere',
-    latitude: 44.6488,
-    longitude: -63.5752,
+    description: 'Premium nightclub experience',
+    imageUrl: '/venues/neon-lounge.jpg',
+    location: 'New York, NY',
+    currentOccupancy: 85,
+    maxCapacity: 150,
+    openingHours: {
+      open: '20:00',
+      close: '04:00'
+    },
     rating: 4.8,
-    reviews: 128,
-    status: 'open',
-    waitTime: 15,
-    capacity: 85,
-    music: 'House',
+    reviews: 342,
+    waitTime: 45,
+    capacity: 95,
+    music: 'Live DJ Set',
     price: 40,
-    boost: 435,
-    vibes: 892,
-    imageUrl: '/images/venues/neon-lounge.jpg',
-    updatedAt: NOW
+    boost: 2,
+    vibes: 435,
+    status: 'open',
+    tags: ['Nightclub', 'Live Music', 'VIP'],
+    coordinates: {
+      lat: 40.7128,
+      lng: -74.0060
+    }
   },
   {
-    id: '2', 
-    name: "Rick's Bar",
-    description: 'Classic pub with live music and great drinks',
-    latitude: 44.6461,
-    longitude: -63.5738,
-    rating: 4.6,
-    reviews: 289,
+    id: '2',
+    name: 'Sky Bar',
+    description: 'Rooftop cocktail lounge',
+    imageUrl: '/venues/sky-bar.jpg',
+    location: 'New York, NY',
+    currentOccupancy: 65,
+    maxCapacity: 120,
+    openingHours: {
+      open: '18:00',
+      close: '02:00'
+    },
+    rating: 4.5,
+    reviews: 256,
+    waitTime: 30,
+    capacity: 75,
+    music: 'Ambient House',
+    price: 35,
+    boost: 1,
+    vibes: 380,
     status: 'open',
-    waitTime: 10,
-    capacity: 65,
-    music: 'Live Band',
-    price: 20,
-    boost: 312,
-    vibes: 756,
-    imageUrl: '/images/venues/ricks-bar.jpg',
-    updatedAt: NOW
+    tags: ['Rooftop', 'Cocktails', 'Views'],
+    coordinates: {
+      lat: 40.7589,
+      lng: -73.9851
+    }
   }
 ]
 
-export default function VenuesPage() {
+function VenuesPageInner() {
   const router = useRouter()
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
   const [selectedVenueId, setSelectedVenueId] = useState<string | undefined>()
@@ -76,19 +89,17 @@ export default function VenuesPage() {
     return mockVenues.filter(venue => 
       venue.name.toLowerCase().includes(query) ||
       venue.description.toLowerCase().includes(query) ||
-      venue.music.toLowerCase().includes(query)
+      (venue.music?.toLowerCase().includes(query) ?? false)
     )
   }, [searchQuery])
 
-  const handleVenueSelect = async (venue: Venue) => {
+  const handleVenueSelect = async (venueIdOrVenue: string | Venue) => {
+    if (isNavigating) return
+    setIsNavigating(true)
+    
     try {
-      setIsNavigating(true)
-      setSelectedVenueId(venue.id)
-      await router.push(`/venues/${venue.id}`)
-    } catch (error) {
-      console.error('Failed to navigate to venue:', error)
-      // Reset selection if navigation fails
-      setSelectedVenueId(undefined)
+      const venueId = typeof venueIdOrVenue === 'string' ? venueIdOrVenue : venueIdOrVenue.id
+      await router.push(`/venues/${venueId}`)
     } finally {
       setIsNavigating(false)
     }
@@ -147,10 +158,19 @@ export default function VenuesPage() {
               venues={filteredVenues}
               selectedVenueId={selectedVenueId}
               onVenueSelect={handleVenueSelect}
+              disabled={isNavigating}
             />
           </div>
         )}
       </main>
     </div>
+  )
+}
+
+export default function VenuesPage() {
+  return (
+    <Suspense>
+      <VenuesPageInner />
+    </Suspense>
   )
 } 

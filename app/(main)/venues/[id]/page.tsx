@@ -80,6 +80,14 @@ export default function VenueDetailsPage({
     id: params.id,
     name: 'Neon Lounge',
     description: 'Premium nightclub experience',
+    imageUrl: '/venues/neon-lounge.jpg',
+    location: 'New York, NY',
+    currentOccupancy: 85,
+    maxCapacity: 150,
+    openingHours: {
+      open: '20:00',
+      close: '04:00'
+    },
     rating: 4.8,
     reviews: 342,
     waitTime: 45,
@@ -89,10 +97,11 @@ export default function VenueDetailsPage({
     boost: 2,
     vibes: 435,
     status: 'open',
-    latitude: 40.7128,
-    longitude: -74.0060,
-    imageUrl: '/venues/neon-lounge.jpg',
-    updatedAt: NOW
+    tags: ['Nightclub', 'Live Music', 'VIP'],
+    coordinates: {
+      lat: 40.7128,
+      lng: -74.0060
+    }
   }
 
   if (isLoading) {

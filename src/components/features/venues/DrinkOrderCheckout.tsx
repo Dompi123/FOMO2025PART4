@@ -23,10 +23,15 @@ export function DrinkOrderCheckout({
   onBack,
   disabled 
 }: DrinkOrderCheckoutProps) {
+  const [drinks] = useState<Drink[]>(initialItems)
   const [orderItems, setOrderItems] = useState<OrderItem[]>(
     initialItems.map(item => ({ 
-      ...item, 
-      quantity: 1
+      id: crypto.randomUUID(),
+      drinkId: item.id,
+      quantity: 1,
+      price: item.price,
+      status: 'pending',
+      specialInstructions: ''
     }))
   )
   const [tipPercentage, setTipPercentage] = useState(20)
@@ -50,7 +55,10 @@ export function DrinkOrderCheckout({
   const tip = (subtotal * tipPercentage) / 100;
   const taxAndFees = subtotal * 0.05;
   const total = subtotal + tip + taxAndFees;
-  const totalPoints = orderItems.reduce((sum, item) => sum + (item.points || 0) * item.quantity, 0);
+  const totalPoints = drinks.reduce((sum, drink) => {
+    const orderItem = orderItems.find(item => item.drinkId === drink.id);
+    return sum + (orderItem?.quantity || 0) * 10; // Default 10 points per drink
+  }, 0);
 
   const handleQuantityChange = useCallback((itemId: string, delta: number) => {
     if (isLoading || disabled) return;
@@ -158,47 +166,52 @@ export function DrinkOrderCheckout({
         </motion.div>
 
         {/* Items */}
-        {orderItems.map((item) => (
-          <motion.div
-            key={item.id}
-            className="p-4 rounded-2xl bg-white/5 backdrop-blur-sm"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleQuantityChange(item.id, -1)}
-                    disabled={item.quantity <= MIN_QUANTITY || isLoading || disabled}
-                    className="p-2 rounded-full bg-white/10 disabled:opacity-50"
-                    aria-label="Decrease quantity"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </motion.button>
-                  <span className="w-4 text-center">{item.quantity}</span>
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleQuantityChange(item.id, 1)}
-                    disabled={item.quantity >= MAX_QUANTITY || isLoading || disabled}
-                    className="p-2 rounded-full bg-white/10 disabled:opacity-50"
-                    aria-label="Increase quantity"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </motion.button>
+        {orderItems.map((item) => {
+          const drink = drinks.find(d => d.id === item.drinkId)
+          if (!drink) return null
+          
+          return (
+            <motion.div
+              key={item.id}
+              className="p-4 rounded-2xl bg-white/5 backdrop-blur-sm"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleQuantityChange(item.id, -1)}
+                      disabled={item.quantity <= MIN_QUANTITY || isLoading || disabled}
+                      className="p-2 rounded-full bg-white/10 disabled:opacity-50"
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </motion.button>
+                    <span className="w-4 text-center">{item.quantity}</span>
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleQuantityChange(item.id, 1)}
+                      disabled={item.quantity >= MAX_QUANTITY || isLoading || disabled}
+                      className="p-2 rounded-full bg-white/10 disabled:opacity-50"
+                      aria-label="Increase quantity"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+                  <div>
+                    <div className="font-medium">{drink.name}</div>
+                    <div className="text-sm text-white/60">+10 points</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-medium">{item.name}</div>
-                  <div className="text-sm text-white/60">+{item.points} points</div>
+                <div className="text-right font-medium">
+                  ${(item.price * item.quantity).toFixed(2)}
                 </div>
               </div>
-              <div className="text-right font-medium">
-                ${(item.price * item.quantity).toFixed(2)}
-              </div>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          )
+        })}
 
         {/* Empty State */}
         {orderItems.length === 0 && (

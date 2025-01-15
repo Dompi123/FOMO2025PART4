@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 
-export default function ProfilePage() {
+function ProfilePageInner() {
   const [profile] = useState({
     name: 'John Doe',
     email: 'john@example.com',
@@ -34,5 +34,13 @@ export default function ProfilePage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense>
+      <ProfilePageInner />
+    </Suspense>
   )
 } 

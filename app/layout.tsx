@@ -1,15 +1,12 @@
 import './globals.css'
 import { Inter } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
-import { ViewportHeightFix } from './components/viewport-fix'
-import { ServiceWorkerRegistration } from './components/service-worker-registration'
-import { ErrorBoundary } from '../src/components/ErrorBoundary'
-import { Analytics } from '../src/components/Analytics'
-import { ThemeProvider } from '../src/components/ThemeProvider'
+import { LayoutClient } from './layout-client'
 
 const inter = Inter({ subsets: ['latin'] })
 
-export const viewport = {
+export const viewport: Viewport = {
+  themeColor: '#070707',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -17,22 +14,26 @@ export const viewport = {
   viewportFit: 'cover',
 }
 
-export const metadata = {
-  title: 'FOMO',
-  description: 'Skip the line, join the vibe',
+export const metadata: Metadata = {
+  title: {
+    template: '%s | FOMO',
+    default: 'FOMO - Skip the line, join the vibe',
+  },
+  description: 'Skip the line, join the vibe. Find the hottest venues and skip the line with FOMO.',
   manifest: '/manifest.json',
-  themeColor: '#070707',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'FOMO',
   },
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: 'cover',
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    apple: [
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+    ],
   },
 }
 
@@ -51,14 +52,7 @@ export default function RootLayout({
         className={`${inter.className} min-h-screen bg-[#070707] text-white antialiased overflow-x-hidden`}
         suppressHydrationWarning
       >
-        <ErrorBoundary>
-          <ThemeProvider>
-            <ViewportHeightFix />
-            <ServiceWorkerRegistration />
-            {children}
-            <Analytics />
-          </ThemeProvider>
-        </ErrorBoundary>
+        <LayoutClient>{children}</LayoutClient>
       </body>
     </html>
   )

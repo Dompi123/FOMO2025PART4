@@ -1,236 +1,286 @@
-import { openDB, IDBPDatabase, IDBPObjectStore, IDBPCursorWithValue, StoreNames, IDBPTransaction } from 'idb'
-import type { SyncOperation } from './sync-manager'
-import type { Venue, Profile, Order } from '@/types'
+import { openDB, deleteDB, IDBPDatabase, IDBPObjectStore, IDBPTransaction } from 'idb'
 
-interface FomoDB {
-  venues: {
-    key: string
-    value: Venue
-  }
-  orders: {
-    key: string
-    value: Order
-  }
-  user: {
-    key: 'profile'
-    value: Profile
-  }
-  syncQueue: {
-    key: string
-    value: SyncOperation
-  }
-  pendingOperations: {
-    key: string
-    value: SyncOperation
-  }
+interface Venue {
+  id: string
+  name: string
+  category: string
+  latitude: number
+  longitude: number
+  // Add other venue properties as needed
 }
 
-const DB_NAME = 'fomo-db'
-const DB_VERSION = 2
+interface Order {
+  id: string
+  createdAt: string
+  status: string
+  // Add other order properties as needed
+}
 
-export class OfflineStorage {
+interface Profile {
+  id: string
+  // Add other profile properties as needed
+}
+
+interface SyncOperation {
+  id: string
+  type: 'CREATE' | 'UPDATE' | 'DELETE'
+  endpoint: string
+  payload: any
+  timestamp: string
+  retryCount: number
+}
+
+interface FomoDB {
+  venues: Venue
+  orders: Order
+  user: Profile
+  sync: SyncOperation
+  metadata: any
+}
+
+class OfflineStorage {
   private db: IDBPDatabase<FomoDB> | null = null
+  private readonly DB_NAME = 'fomo-db'
+  private readonly DB_VERSION = 2 // Increment for schema changes
+  private readonly STORES = {
+    VENUES: 'venues',
+    ORDERS: 'orders',
+    USER: 'user',
+    SYNC: 'sync',
+    METADATA: 'metadata' // New store for versioning
+  }
 
-  async init() {
+  async init(): Promise<void> {
     if (this.db) return
 
-    this.db = await openDB<FomoDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
-        // Create stores if they don't exist
-        if (!db.objectStoreNames.contains('venues')) {
-          db.createObjectStore('venues', { keyPath: 'id' })
-        }
-        if (!db.objectStoreNames.contains('orders')) {
-          db.createObjectStore('orders', { keyPath: 'id' })
-        }
-        if (!db.objectStoreNames.contains('user')) {
-          db.createObjectStore('user', { keyPath: 'id' })
-        }
-        // New stores for sync support
-        if (!db.objectStoreNames.contains('syncQueue')) {
-          db.createObjectStore('syncQueue', { keyPath: 'id' })
-        }
-        if (!db.objectStoreNames.contains('pendingOperations')) {
-          db.createObjectStore('pendingOperations', { keyPath: 'id' })
-        }
-
-        // Add version field to existing stores if upgrading from v1
-        if (oldVersion < 2) {
-          const stores = ['venues', 'orders', 'user'] as const
-          stores.forEach(async (storeName) => {
-            const tx = db.transaction(storeName, 'readwrite')
-            const store = tx.objectStore(storeName)
-            
-            try {
-              let cursor = await store.openCursor()
-              while (cursor) {
-                const value = cursor.value
-                if (!value.version) {
-                  value.version = 1
-                  await cursor.update(value)
-                }
-                cursor = await cursor.continue()
-              }
-              await tx.done
-            } catch (error) {
-              console.error(`Failed to upgrade store ${storeName}:`, error)
-            }
-          })
-        }
-      },
-    })
-  }
-
-  // Sync Queue Methods
-  async getSyncQueue(): Promise<SyncOperation[]> {
     try {
-      await this.init()
-      return await this.db!.getAll('syncQueue')
+      this.db = await openDB<FomoDB>(this.DB_NAME, this.DB_VERSION, {
+        upgrade: (db, oldVersion, newVersion) => this.handleUpgrade(db, oldVersion ?? 0, newVersion ?? this.DB_VERSION),
+        blocked: () => {
+          console.warn('Database upgrade blocked. Please close other tabs of this app.')
+        },
+        blocking: () => {
+          if (this.db) {
+            this.db.close()
+          }
+        },
+        terminated: () => {
+          console.error('Database connection terminated unexpectedly')
+          this.db = null
+        }
+      })
+
+      // Set initial metadata if not exists
+      const metadata = await this.db.get(this.STORES.METADATA, 'version')
+      if (!metadata) {
+        await this.db.put(this.STORES.METADATA, {
+          version: this.DB_VERSION,
+          lastSync: new Date().toISOString()
+        }, 'version')
+      }
     } catch (error) {
-      console.error('Failed to get sync queue:', error)
-      return []
+      console.error('Failed to initialize database:', error)
+      await this.deleteDatabase()
+      return this.init()
     }
   }
 
-  async saveSyncQueue(queue: SyncOperation[]): Promise<void> {
-    try {
-      await this.init()
-      const tx = this.db!.transaction('syncQueue', 'readwrite')
-      await tx.objectStore('syncQueue').clear()
-      await Promise.all(queue.map(op => tx.store.add(op)))
-      await tx.done
-    } catch (error) {
-      console.error('Failed to save sync queue:', error)
+  private async handleUpgrade(db: IDBPDatabase<FomoDB>, oldVersion: number, newVersion: number) {
+    if (oldVersion < 1) {
+      // Initial schema
+      this.createInitialStores(db)
+    }
+    
+    if (oldVersion < 2) {
+      // Add metadata store in version 2
+      if (!db.objectStoreNames.contains(this.STORES.METADATA)) {
+        db.createObjectStore(this.STORES.METADATA)
+      }
+      
+      // Add new indices or modify existing stores
+      if (db.objectStoreNames.contains(this.STORES.VENUES)) {
+        const tx = db.transaction(this.STORES.VENUES, 'readwrite')
+        const store = tx.objectStore(this.STORES.VENUES) as unknown as IDBObjectStore
+        const indexNames = store.indexNames
+        const hasCategoryIndex = Array.from(indexNames).includes('by-category')
+        
+        if (!hasCategoryIndex) {
+          store.createIndex('by-category', 'category')
+        }
+        await tx.done
+      }
     }
   }
 
-  // Pending Operations Methods
-  async saveOperation(operation: SyncOperation): Promise<void> {
-    try {
+  private createInitialStores(db: IDBPDatabase<FomoDB>) {
+    // Venues store with indices
+    const venueStore = db.createObjectStore(this.STORES.VENUES, { keyPath: 'id' })
+    venueStore.createIndex('by-location', ['latitude', 'longitude'])
+    venueStore.createIndex('by-category', 'category')
+
+    // Orders store with indices
+    const orderStore = db.createObjectStore(this.STORES.ORDERS, { keyPath: 'id' })
+    orderStore.createIndex('by-date', 'createdAt')
+    orderStore.createIndex('by-status', 'status')
+
+    // User store
+    db.createObjectStore(this.STORES.USER, { keyPath: 'id' })
+
+    // Sync operations store with indices
+    const syncStore = db.createObjectStore(this.STORES.SYNC, { keyPath: 'id' })
+    syncStore.createIndex('by-type', 'type')
+    syncStore.createIndex('by-timestamp', 'timestamp')
+  }
+
+  private async ensureConnection() {
+    if (!this.db) {
       await this.init()
-      await this.db!.add('pendingOperations', operation)
-    } catch (error) {
-      console.error('Failed to save operation:', error)
+    }
+    if (!this.db) {
+      throw new Error('Failed to establish database connection')
     }
   }
 
-  async removeOperation(operationId: string): Promise<void> {
+  // Venue operations with error handling and retries
+  async saveVenues(venues: Venue[], retryCount = 3): Promise<void> {
+    await this.ensureConnection()
     try {
-      await this.init()
-      await this.db!.delete('pendingOperations', operationId)
-    } catch (error) {
-      console.error('Failed to remove operation:', error)
-    }
-  }
-
-  async getPendingOperations(): Promise<SyncOperation[]> {
-    try {
-      await this.init()
-      return await this.db!.getAll('pendingOperations')
-    } catch (error) {
-      console.error('Failed to get pending operations:', error)
-      return []
-    }
-  }
-
-  // Enhanced Venue Methods
-  async saveVenues(venues: Venue[]): Promise<void> {
-    try {
-      await this.init()
-      const tx = this.db!.transaction('venues', 'readwrite')
+      const tx = this.db!.transaction(this.STORES.VENUES, 'readwrite')
       await Promise.all(venues.map(venue => tx.store.put(venue)))
       await tx.done
     } catch (error) {
-      console.error('Failed to save venues:', error)
-      throw new Error('Failed to save venues to offline storage')
+      if (retryCount > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return this.saveVenues(venues, retryCount - 1)
+      }
+      throw new Error(`Failed to save venues: ${error}`)
     }
   }
 
   async getVenues(): Promise<Venue[]> {
-    try {
-      await this.init()
-      return await this.db!.getAll('venues')
-    } catch (error) {
-      console.error('Failed to get venues:', error)
-      throw new Error('Failed to retrieve venues from offline storage')
-    }
+    await this.ensureConnection()
+    return this.db!.getAll(this.STORES.VENUES)
   }
 
-  // Enhanced Order Methods
-  async saveOrder(order: Order): Promise<void> {
-    try {
-      await this.init()
-      await this.db!.put('orders', order)
-    } catch (error) {
-      console.error('Failed to save order:', error)
-      throw new Error('Failed to save order to offline storage')
-    }
+  async getVenuesByLocation(lat: number, lng: number, radius: number): Promise<Venue[]> {
+    await this.ensureConnection()
+    const venues = await this.getVenues()
+    return venues.filter(venue => {
+      const distance = this.calculateDistance(lat, lng, venue.latitude, venue.longitude)
+      return distance <= radius
+    })
   }
 
-  async getOrder(orderId: string): Promise<Order | undefined> {
+  // Order operations
+  async saveOrders(orders: Order[], retryCount = 3): Promise<void> {
+    await this.ensureConnection()
     try {
-      await this.init()
-      return await this.db!.get('orders', orderId)
+      const tx = this.db!.transaction(this.STORES.ORDERS, 'readwrite')
+      await Promise.all(orders.map(order => tx.store.put(order)))
+      await tx.done
     } catch (error) {
-      console.error('Failed to get order:', error)
-      throw new Error('Failed to retrieve order from offline storage')
+      if (retryCount > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return this.saveOrders(orders, retryCount - 1)
+      }
+      throw new Error(`Failed to save orders: ${error}`)
     }
   }
 
   async getOrders(): Promise<Order[]> {
-    try {
-      await this.init()
-      return await this.db!.getAll('orders')
-    } catch (error) {
-      console.error('Failed to get orders:', error)
-      throw new Error('Failed to retrieve orders from offline storage')
-    }
+    await this.ensureConnection()
+    return this.db!.getAll(this.STORES.ORDERS)
   }
 
-  // Enhanced User Data Methods
-  async saveUserData(data: Profile): Promise<void> {
+  // User operations
+  async saveUserData(profile: Profile, retryCount = 3): Promise<void> {
+    await this.ensureConnection()
     try {
-      await this.init()
-      await this.db!.put('user', {
-        ...data,
-        lastSyncedAt: new Date().toISOString(),
-        version: (data.version || 0) + 1
-      })
+      await this.db!.put(this.STORES.USER, profile)
     } catch (error) {
-      console.error('Failed to save user data:', error)
-      throw new Error('Failed to save user data to offline storage')
+      if (retryCount > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return this.saveUserData(profile, retryCount - 1)
+      }
+      throw new Error(`Failed to save user data: ${error}`)
     }
   }
 
   async getUserData(): Promise<Profile | undefined> {
+    await this.ensureConnection()
+    const allUsers = await this.db!.getAll(this.STORES.USER)
+    return allUsers[0]
+  }
+
+  // Sync operations
+  async saveOperation(operation: SyncOperation, retryCount = 3): Promise<void> {
+    await this.ensureConnection()
     try {
-      await this.init()
-      return await this.db!.get('user', 'profile')
+      await this.db!.put(this.STORES.SYNC, operation)
     } catch (error) {
-      console.error('Failed to get user data:', error)
-      throw new Error('Failed to retrieve user data from offline storage')
+      if (retryCount > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return this.saveOperation(operation, retryCount - 1)
+      }
+      throw new Error(`Failed to save sync operation: ${error}`)
     }
   }
 
-  async clearAllData(): Promise<void> {
+  async removeOperation(id: string, retryCount = 3): Promise<void> {
+    await this.ensureConnection()
     try {
-      await this.init()
-      const tx = this.db!.transaction(
-        ['venues', 'orders', 'user', 'syncQueue', 'pendingOperations'],
-        'readwrite'
-      )
-      await Promise.all([
-        tx.objectStore('venues').clear(),
-        tx.objectStore('orders').clear(),
-        tx.objectStore('user').clear(),
-        tx.objectStore('syncQueue').clear(),
-        tx.objectStore('pendingOperations').clear()
-      ])
-      await tx.done
+      await this.db!.delete(this.STORES.SYNC, id)
     } catch (error) {
-      console.error('Failed to clear data:', error)
-      throw new Error('Failed to clear offline storage')
+      if (retryCount > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return this.removeOperation(id, retryCount - 1)
+      }
+      throw new Error(`Failed to remove sync operation: ${error}`)
     }
+  }
+
+  async getPendingOperations(): Promise<SyncOperation[]> {
+    await this.ensureConnection()
+    return this.db!.getAll(this.STORES.SYNC)
+  }
+
+  // Helper methods
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371 // Earth's radius in km
+    const dLat = this.toRad(lat2 - lat1)
+    const dLon = this.toRad(lon2 - lon1)
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
+  private toRad(degrees: number): number {
+    return degrees * (Math.PI / 180)
+  }
+
+  async deleteDatabase(): Promise<void> {
+    if (this.db) {
+      this.db.close()
+      this.db = null
+    }
+    await deleteDB(this.DB_NAME)
+  }
+
+  async clearAllData(): Promise<void> {
+    await this.ensureConnection()
+    const tx = this.db!.transaction(
+      [this.STORES.VENUES, this.STORES.ORDERS, this.STORES.USER, this.STORES.SYNC],
+      'readwrite'
+    )
+    await Promise.all([
+      tx.objectStore(this.STORES.VENUES).clear(),
+      tx.objectStore(this.STORES.ORDERS).clear(),
+      tx.objectStore(this.STORES.USER).clear(),
+      tx.objectStore(this.STORES.SYNC).clear()
+    ])
+    await tx.done
   }
 }
 

@@ -93,6 +93,93 @@ interface UserProfileResponse {
   orders: OrderResponse[]
 }
 
+export interface Venue {
+  id: string
+  name: string
+  description: string
+  category: string
+  latitude: number
+  longitude: number
+  address: string
+  openingHours: {
+    [key: string]: {
+      open: string
+      close: string
+    }
+  }
+  images: {
+    thumbnail: string
+    cover: string
+    gallery: string[]
+  }
+  rating: number
+  capacity: {
+    total: number
+    current: number
+  }
+  version: number
+  updatedAt: string
+}
+
+export interface OrderItem {
+  id: string
+  name: string
+  quantity: number
+  price: number
+  options?: {
+    name: string
+    value: string
+    price?: number
+  }[]
+}
+
+export interface Order {
+  id: string
+  venueId: string
+  userId: string
+  items: OrderItem[]
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+  total: number
+  createdAt: string
+  updatedAt: string
+  version: number
+}
+
+export interface Profile {
+  id: string
+  email: string
+  name: string
+  phone?: string
+  avatar?: string
+  preferences: {
+    notifications: {
+      push: boolean
+      email: boolean
+      sms: boolean
+    }
+    theme: 'light' | 'dark' | 'system'
+  }
+  version: number
+  updatedAt: string
+}
+
+export interface ApiErrorResponse {
+  message: string
+  errors?: Record<string, string[]>
+  code?: string
+  status: number
+}
+
+export interface ApiSuccessResponse<T> {
+  data: T
+  meta?: {
+    total?: number
+    page?: number
+    perPage?: number
+    hasMore?: boolean
+  }
+}
+
 export type {
   ApiResponse,
   ApiError,

@@ -1,22 +1,27 @@
 import { apiClient } from '@/lib/api-client';
 import type { AuthResponse, SignupCredentials } from '@/types/auth';
+import type { ApiSuccessResponse } from '@/types/api';
 
 export const authService = {
   async signupWithPhone(phone: string): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>('/auth/phone/signup', { phone });
+    const response = await apiClient.post<AuthResponse>('/auth/phone/signup', { phone });
+    return response.data;
   },
 
   async signupWithEmail(email: string): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>('/auth/email/signup', { email });
+    const response = await apiClient.post<AuthResponse>('/auth/email/signup', { email });
+    return response.data;
   },
 
   async verifyCode(credentials: SignupCredentials): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>('/auth/verify', credentials);
+    const response = await apiClient.post<AuthResponse>('/auth/verify', credentials);
+    return response.data;
   },
 
   async signInWithApple(): Promise<AuthResponse> {
     // Implement Apple Sign In
-    return apiClient.post<AuthResponse>('/auth/apple');
+    const response = await apiClient.post<AuthResponse>('/auth/apple');
+    return response.data;
   },
 
   async logout(): Promise<void> {
