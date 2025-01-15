@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
+import { useCleanup } from '@/hooks/useCleanup'
+import debounce from 'lodash/debounce'
 
 interface VirtualListProps<T extends Record<string, any>> {
   items: T[]
@@ -24,7 +26,11 @@ export function VirtualList<T extends Record<string, any>>({
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 10 })
-  const totalHeight = items.length * itemHeight
+  const { addCleanup } = useCleanup()
+  const handlersRef = useRef({
+    scroll: null as null | ReturnType<typeof debounce>,
+    resize: null as null | ReturnType<typeof debounce>
+  })
 
   // End reached detection
   const { ref: endRef } = useInView({
@@ -40,27 +46,39 @@ export function VirtualList<T extends Record<string, any>>({
     const container = containerRef.current
     if (!container) return
 
-    const handleScroll = () => {
+    // Create stable handlers
+    handlersRef.current.scroll = debounce(() => {
       const { scrollTop, clientHeight } = container
       const start = Math.floor(scrollTop / itemHeight)
       const end = Math.min(
         items.length,
         Math.ceil((scrollTop + clientHeight) / itemHeight) + overscan
       )
-
       setVisibleRange({ start: Math.max(0, start - overscan), end })
-    }
+    }, 50)
 
-    handleScroll() // Initial calculation
-    container.addEventListener('scroll', handleScroll)
-    window.addEventListener('resize', handleScroll)
+    handlersRef.current.resize = debounce(() => {
+      handlersRef.current.scroll?.()
+    }, 100)
 
-    return () => {
-      container.removeEventListener('scroll', handleScroll)
-      window.removeEventListener('resize', handleScroll)
-    }
-  }, [items.length, itemHeight, overscan])
+    // Initial calculation
+    handlersRef.current.scroll()
 
+    // Add listeners
+    container.addEventListener('scroll', handlersRef.current.scroll)
+    window.addEventListener('resize', handlersRef.current.resize)
+
+    // Add cleanup
+    addCleanup(() => {
+      container.removeEventListener('scroll', handlersRef.current.scroll!)
+      window.removeEventListener('resize', handlersRef.current.resize!)
+      handlersRef.current.scroll?.cancel()
+      handlersRef.current.resize?.cancel()
+      handlersRef.current = { scroll: null, resize: null }
+    })
+  }, [items.length, itemHeight, overscan, addCleanup])
+
+  const totalHeight = items.length * itemHeight
   const visibleItems = items.slice(visibleRange.start, visibleRange.end)
 
   return (

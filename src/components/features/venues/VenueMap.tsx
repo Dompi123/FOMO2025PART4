@@ -1,10 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import type { Venue } from '@/types'
 import Map, { Marker, Popup, ViewState } from 'react-map-gl'
+import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { useCleanup } from '@/hooks/useCleanup'
+import debounce from 'lodash/debounce'
 
 interface VenueMapProps {
   venues: Venue[]
@@ -33,31 +36,86 @@ const DEFAULT_COORDINATES = {
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
 export default function VenueMap({ venues, selectedVenueId, onVenueSelect }: VenueMapProps) {
+  const mapRef = useRef<mapboxgl.Map | null>(null)
+  const markersRef = useRef<mapboxgl.Marker[]>([])
+  const { addCleanup } = useCleanup()
   const [mapLoaded, setMapLoaded] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      setSelectedVenue(null)
-      setError(null)
-    }
-  }, [])
-
-  // Validate Mapbox token on mount
-  useEffect(() => {
-    if (!MAPBOX_TOKEN) {
-      setError('Missing Mapbox token. Please check your environment variables.')
-      setIsLoading(false)
-    }
-  }, [])
-
   // Filter out venues with invalid coordinates
   const validVenues = venues.filter(venue => 
     isValidCoordinate(venue.latitude, venue.longitude)
   )
+
+  // Map initialization and cleanup
+  useEffect(() => {
+    if (!MAPBOX_TOKEN) {
+      setError('Missing Mapbox token. Please check your environment variables.')
+      setIsLoading(false)
+      return
+    }
+
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/dark-v11',
+      ...initialViewState()
+    })
+    mapRef.current = map
+
+    const handleError = debounce((e: any) => {
+      console.error('Map error:', e)
+      setError('Failed to load map. Please try again.')
+    }, 100)
+
+    map.on('error', handleError)
+
+    addCleanup(() => {
+      handleError.cancel()
+      map.off('error', handleError)
+      map.remove()
+      mapRef.current = null
+    })
+  }, [MAPBOX_TOKEN])
+
+  // Handle markers
+  useEffect(() => {
+    if (!mapRef.current) return
+
+    // Clear existing markers
+    markersRef.current.forEach(marker => marker.remove())
+    markersRef.current = []
+
+    // Create new markers
+    const newMarkers = validVenues.map(venue => {
+      const marker = new mapboxgl.Marker()
+        .setLngLat([venue.longitude, venue.latitude])
+        .addTo(mapRef.current!)
+
+      const element = marker.getElement()
+      const clickHandler = (e: MouseEvent) => {
+        e.stopPropagation()
+        handleVenueSelect(venue)
+      }
+      element.addEventListener('click', clickHandler)
+
+      addCleanup(() => {
+        element.removeEventListener('click', clickHandler)
+        marker.remove()
+      })
+
+      return marker
+    })
+
+    markersRef.current = newMarkers
+  }, [validVenues, mapRef.current])
+
+  // Handle selected venue updates
+  useEffect(() => {
+    const venue = venues.find(v => v.id === selectedVenueId)
+    setSelectedVenue(venue || null)
+  }, [selectedVenueId, venues])
 
   // Calculate initial view state based on valid venues
   const initialViewState = useCallback((): InitialViewState => {

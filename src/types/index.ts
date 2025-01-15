@@ -11,10 +11,9 @@ export interface Venue {
   capacity: number;
   music: string;
   price: number;
-  boost: number;
-  vibes: number;
   imageUrl: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface Drink {
@@ -34,27 +33,31 @@ export interface OrderItem extends Drink {
 export interface Order {
   id: string;
   venueId: string;
-  items: OrderItem[];
-  subtotal: number;
-  tip: number;
-  tipPercentage: number;
-  taxAndFees: number;
+  items: Array<{
+    id: string;
+    name: string;
+    quantity: number;
+    price: number;
+  }>;
+  status: 'pending' | 'confirmed' | 'ready' | 'completed';
   total: number;
-  totalPoints: number;
-  paymentMethod: {
-    last4: string;
-    type: string;
-  };
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   createdAt: string;
+  version: number;
 }
 
 export interface Profile {
   id: string;
   name: string;
   email: string;
-  preferences: Record<string, unknown>;
+  preferences: Record<string, any>;
   lastSyncedAt: string;
+  version: number;
+}
+
+export interface ApiResponse<T> {
+  data: T;
+  version?: number;
+  error?: string;
 }
 
 export type Screen = 'venues' | 'venue' | 'menu' | 'checkout' | 'passes' | 'profile'; 
